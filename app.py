@@ -1,17 +1,24 @@
 """
 app.py
-FastAPI application entry point.
+FastAPI application entry point for the MongoCatalogApp.
 
-Currently provides:
+Implements:
 - /health endpoint
-- Skeleton routes for future implementation
-
-Teammates will implement actual CRUD and nested-array logic
-using functions from db.py (and other service modules).
+- Full CRUD routes for the products collection
+- Inline Pydantic models for validation (no external models.py required)
+- Integration with MongoDB via db.py and services/products.py
 """
 
 from fastapi import FastAPI
-from db import get_products_collection
+from typing import List, Optional
+from pydantic import BaseModel, Field, condecimal, conint
+from datetime import datetime
+from services import products  # CRUD logic lives in services/products.py
+
+
+# ================================================================
+# FastAPI Application Initialization
+# ================================================================
 
 app = FastAPI(
     title="MongoDB Web Catalog",
@@ -20,64 +27,120 @@ app = FastAPI(
 )
 
 
+# ================================================================
+# Inline Pydantic Models (validation for requests/responses)
+# ================================================================
+
+class Review(BaseModel):
+    """Represents a single review inside a product."""
+    review_id: str
+    author: Optional[str] = None
+    rating: conint(ge=1, le=5)
+    comment: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProductCreate(BaseModel):
+    """Model for creating a new product."""
+    sku: str
+    name: str
+    price: condecimal(ge=0, max_digits=10, decimal_places=2)
+    category: Optional[str] = None
+    reviews: List[Review] = []
+
+
+class ProductUpdate(BaseModel):
+    """Model for updating an existing product."""
+    name: Optional[str] = None
+    price: Optional[condecimal(ge=0, max_digits=10, decimal_places=2)] = None
+    category: Optional[str] = None
+
+
+class ProductOut(BaseModel):
+    """Model returned in API responses."""
+    sku: str
+    name: str
+    price: float
+    category: Optional[str] = None
+    reviews: List[Review] = []
+
+
+# ================================================================
+# Health Check Endpoint
+# ================================================================
+
 @app.get("/health")
 async def health_check():
-    """Simple health check endpoint."""
+    """
+    Basic health check endpoint to verify the API is running.
+    Returns {"status": "ok"} when operational.
+    """
     return {"status": "ok"}
 
 
-# ===== Skeleton endpoints for teammates to implement =====
+# ================================================================
+# Product CRUD Endpoints
+# ================================================================
 
-@app.get("/products")
+@app.get("/products", response_model=List[ProductOut])
 async def list_products():
     """
-    TODO (Teammate):
-    - Fetch products from MongoDB (maybe with paging later)
-    - Return as JSON
+    Retrieve all products from the MongoDB collection.
+    Returns a list of ProductOut models.
     """
-    # Example placeholder so the route works:
-    coll = get_products_collection()
-    sample_count = coll.count_documents({})
-    return {"message": "Not implemented yet", "sample_product_count": sample_count}
+    return products.get_all_products()
 
 
-@app.post("/products")
-async def create_product():
+@app.get("/products/{sku}", response_model=ProductOut)
+async def get_product(sku: str):
     """
-    TODO (Teammate):
-    - Validate request body
-    - Insert new product document
-    - Handle validation errors from MongoDB
+    Retrieve a single product document by its SKU.
+    Raises 404 if the product does not exist.
     """
-    return {"message": "create_product not implemented yet"}
+    return products.get_product(sku)
 
 
-@app.post("/products/{sku}/reviews")
-async def add_review(sku: str):
+@app.post("/products", response_model=ProductOut, status_code=201)
+async def create_product(body: ProductCreate):
     """
-    TODO (Teammate):
-    - Read review data from request body
-    - Use $push to append review to the product's reviews[]
+    Create a new product document in MongoDB.
+    - Validates request body using ProductCreate model.
+    - Returns the newly inserted product.
+    - Raises 409 if SKU already exists.
     """
-    return {"message": f"add_review for {sku} not implemented yet"}
+    return products.create_product(body.model_dump())
 
 
-@app.patch("/products/{sku}/reviews/{review_id}")
-async def update_review(sku: str, review_id: str):
+@app.patch("/products/{sku}", response_model=ProductOut)
+async def update_product(sku: str, body: ProductUpdate):
     """
-    TODO (Teammate):
-    - Use positional $ operator or arrayFilters to update a specific review
+    Update an existing product document by SKU.
+    - Accepts partial updates.
+    - Raises 404 if the product does not exist.
     """
-    return {
-        "message": f"update_review for sku={sku}, review_id={review_id} not implemented yet"
-    }
+    update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+    return products.update_product(sku, update_data)
 
 
-@app.get("/products/{sku}/rating")
-async def get_product_rating(sku: str):
+@app.delete("/products/{sku}", status_code=204)
+async def delete_product(sku: str):
     """
-    TODO (Teammate):
-    - Use aggregation pipeline to compute average rating for one product
-    - Optionally reuse Mehrad's aggregation helper function if provided
+    Delete a product document by SKU.
+    - Raises 404 if SKU not found.
+    - Returns 204 No Content on success.
     """
-    return {"message": f"get_product_rating for {sku} not implemented yet"}
+    products.delete_product(sku)
+    return
+
+
+# ================================================================
+# Future Enhancements (for teammates)
+# ================================================================
+# These routes can be extended later by other teammates to include:
+# - add_review() and update_review() using MongoDB $push / $set
+# - aggregation pipelines for average ratings
+# - indexing and performance queries
+#
+# For now, CRUD endpoints provide the base functionality
+# for product management in the catalog.
+# ================================================================
