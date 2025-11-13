@@ -26,7 +26,6 @@ app = FastAPI(
     version="0.1.0",
 )
 
-
 # ================================================================
 # Inline Pydantic Models (validation for requests/responses)
 # ================================================================
@@ -195,17 +194,3 @@ async def patch_review_with_arrayfilter(sku: str, body: ReviewArrayFilterUpdate)
         body.filter_criteria,
         body.new_data
     )
-
-
-
-# ================================================================
-# Future Enhancements (for teammates)
-# ================================================================
-# These routes can be extended later by other teammates to include:
-# - add_review() and update_review() using MongoDB $push / $set
-# - aggregation pipelines for average ratings
-# - indexing and performance queries
-#
-# For now, CRUD endpoints provide the base functionality
-# for product management in the catalog.
-# ================================================================
