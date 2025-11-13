@@ -10,7 +10,7 @@ Implements:
 """
 
 from fastapi import FastAPI
-from typing import List, Optional
+from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field, condecimal, conint
 from datetime import datetime
 from services import products  # CRUD logic lives in services/products.py
@@ -34,11 +34,28 @@ app = FastAPI(
 class Review(BaseModel):
     """Represents a single review inside a product."""
     review_id: str
-    author: Optional[str] = None
+    user_id: str
     rating: conint(ge=1, le=5)
     comment: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    verified: bool
 
+class ReviewUpdate(BaseModel):
+    user_id: Optional[str] = None
+    rating: Optional[conint(ge=1, le=5)] = None
+    comment: Optional[str] = None
+    verified: Optional[bool] = None
+
+class ReviewArrayFilterUpdate(BaseModel):
+    filter_criteria: Dict[str, Any] = Field(
+        ...,
+        description="Criteria to match the review to update",
+        example={"review_id": "r1001-1"}
+    )
+    new_data: Dict[str, Any] = Field(
+        ...,
+        description="New data to set on the matched review",
+        example={"rating": 5, "comment": "Updated review text"}
+    )
 
 class ProductCreate(BaseModel):
     """Model for creating a new product."""
@@ -131,6 +148,26 @@ async def delete_product(sku: str):
     """
     products.delete_product(sku)
     return
+
+@app.post("/products/{sku}/reviews", response_model=ProductOut, status_code=201)
+async def add_review(sku: str, review: Review):
+    """
+    Add a review to a product.
+    """
+    return products.add_review(sku, review.model_dump())
+
+@app.patch("/products/{sku}/reviews/{review_id}", response_model=ProductOut)
+async def update_review_positional(sku: str, review_id: str, body: ReviewUpdate):
+    return products.update_review_positional(sku, review_id, body.model_dump(exclude_none=True))
+
+@app.patch("/products/{sku}/reviews/arrayfilters", response_model=ProductOut)
+async def patch_review_with_arrayfilter(sku: str, body: ReviewArrayFilterUpdate):
+    return products.update_review_array_filters(
+        sku,
+        body.filter_criteria,
+        body.new_data
+    )
+
 
 
 # ================================================================

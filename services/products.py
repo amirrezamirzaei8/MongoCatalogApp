@@ -1,6 +1,11 @@
 # services/products.py
 from fastapi import HTTPException, status
 from db import get_products_collection
+from pymongo.errors import PyMongoError
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # helper to get collection
 def _coll():
@@ -74,3 +79,65 @@ def delete_product(sku: str):
     if res.deleted_count == 0:
         _not_found(sku)
     return {"message": f"Product '{sku}' deleted successfully"}
+
+def add_review(sku: str, review_data: dict):
+    """
+    Adds a review to a product.
+    """
+    coll = _coll()
+    res = coll.update_one({"sku": sku}, {"$push": {"reviews": review_data}})
+    if res.matched_count == 0:
+        _not_found(sku)
+    return coll.find_one({"sku": sku}, {"_id": 0})
+
+def update_review_positional(sku: str, review_id: str, update_data: dict):
+    """
+    Updates a single review in a product using MongoDB's positional operator ($).
+    """
+    coll = _coll()
+
+    update_fields = {f"reviews.$.{k}": v for k, v in update_data.items()}
+    res = coll.update_one(
+        {"sku": sku, "reviews.review_id": review_id},
+        {"$set": update_fields}
+    )
+
+    if res.matched_count == 0:
+        _not_found(sku)
+
+    return coll.find_one({"sku": sku}, {"_id": 0})
+
+
+def update_review_array_filters(sku: str, filter_criteria: dict, new_data: dict):
+    coll = _coll()
+
+    # Build $[rev] placeholder
+    update_fields = {f"reviews.$[rev].{k}": v for k, v in new_data.items()}
+    array_filters = [{f"rev.{k}": v for k, v in filter_criteria.items()}]
+
+    logger.debug("SKU: %s", sku)
+    logger.debug("Filter criteria: %s", filter_criteria)
+    logger.debug("New data: %s", new_data)
+    logger.debug("Update fields: %s", update_fields)
+    logger.debug("Array filters: %s", array_filters)
+
+    res = coll.update_one(
+        {"sku": sku},
+        {"$set": update_fields},
+        array_filters=array_filters  # ← pass list directly
+    )
+
+    logger.debug("MongoDB result: %s", res.raw_result)
+
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail=f"Product with SKU '{sku}' not found")
+    if res.modified_count == 0:
+        # Improve error message
+        raise HTTPException(
+            status_code=404,
+            detail=f"No review matched filter {filter_criteria} or data unchanged. "
+                   f"Array filters used: {array_filters}"
+        )
+
+    return coll.find_one({"sku": sku}, {"_id": 0})
+
